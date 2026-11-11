@@ -32,8 +32,8 @@ class DeviceController extends Controller
 
     public function approve(Request $request, Enrollment $enrollment, EnrollmentService $service): RedirectResponse
     {
-        $data = $request->validate(['asset_id' => ['nullable', 'integer', 'exists:tracked_assets,id']]);
-        $device = $service->approve($enrollment, isset($data['asset_id']) ? (int) $data['asset_id'] : null);
+        $data = $request->validate(['asset_id' => ['nullable', 'integer', 'exists:tracked_assets,id'], 'name' => ['sometimes', 'required', 'string', 'max:100']]);
+        $device = $service->approve($enrollment, isset($data['asset_id']) ? (int) $data['asset_id'] : null, $data['name'] ?? null);
 
         return redirect()->route('devices.show', $device)->with('success', 'Dispositivo aprobado. La aplicación ya puede obtener su credencial.');
     }

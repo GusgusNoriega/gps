@@ -36,10 +36,10 @@ class EnrollmentTest extends TestCase
         $this->getJson($url)->assertUnauthorized();
         $this->withToken($request['enrollment_secret'])->getJson($url)->assertOk()->assertJsonPath('status', 'pending')->assertJsonMissingPath('secret_hash');
         $this->withToken($request['enrollment_secret'])->postJson($url.'/exchange')->assertConflict();
-        app(EnrollmentService::class)->approve(Enrollment::findOrFail($request['enrollment_id']));
+        $device = app(EnrollmentService::class)->approve(Enrollment::findOrFail($request['enrollment_id']));
         $token = $this->withToken($request['enrollment_secret'])->postJson($url.'/exchange')->assertOk()->json('access_token');
         $this->withToken($request['enrollment_secret'])->postJson($url.'/exchange')->assertConflict();
-        $this->withToken($token)->getJson('/api/v1/configuration')->assertOk()->assertJsonPath('name', 'Teléfono de prueba')->assertJsonMissingPath('position');
+        $this->withToken($token)->getJson('/api/v1/configuration')->assertOk()->assertJsonPath('name', $device->name)->assertJsonMissingPath('position');
         $this->assertDatabaseCount('devices', 1);
         $this->assertDatabaseCount('personal_access_tokens', 1);
     }
@@ -82,7 +82,40 @@ class EnrollmentTest extends TestCase
         $data = ['installation_id' => $installationId, 'name' => 'Original', 'platform' => 'android'];
         $this->postJson('/api/v1/enrollments', $data)->assertCreated();
         $this->postJson('/api/v1/enrollments', array_merge($data, ['name' => 'Impostor']))->assertUnprocessable();
-        $this->assertDatabaseHas('enrollments', ['installation_id' => $installationId, 'name' => 'Original']);
+        $this->assertDatabaseHas('enrollments', ['installation_id' => $installationId, 'name' => 'Dispositivo '.strtoupper(substr(str_replace('-', '', $installationId), 0, 8))]);
+    }
+
+    public function test_mobile_installations_receive_a_server_assigned_name(): void
+    {
+        $installationId = '12345678-1234-4234-8234-123456789abc';
+        $response = $this->postJson('/api/v1/enrollments', ['installation_id' => $installationId, 'platform' => 'ios', 'model' => 'iPhone'])->assertCreated();
+        $this->assertDatabaseHas('enrollments', ['id' => $response->json('enrollment_id'), 'name' => 'Dispositivo 12345678']);
+
+        $this->postJson('/api/v1/enrollments', ['installation_id' => '87654321-1234-4234-8234-123456789abc', 'platform' => 'android', 'name' => 'Nombre elegido en el teléfono'])->assertCreated();
+        $this->assertDatabaseHas('enrollments', ['installation_id' => '87654321-1234-4234-8234-123456789abc', 'name' => 'Dispositivo 87654321']);
+    }
+
+    public function test_administrator_assigns_the_device_name_when_approving(): void
+    {
+        $enrollment = Enrollment::factory()->create();
+        $this->actingAs(User::factory()->create(['is_admin' => true]));
+        $this->post('/enrollments/'.$enrollment->id.'/approve', ['name' => 'Teléfono de reparto'])->assertRedirect();
+
+        $device = Device::findOrFail($enrollment->fresh()->device_id);
+        $this->assertSame('Teléfono de reparto', $device->name);
+        $this->assertSame('Teléfono de reparto', $device->currentAssignment->asset->name);
+        $this->assertSame('Teléfono de reparto', $enrollment->fresh()->name);
+    }
+
+    public function test_mobile_configuration_reflects_name_changes_from_the_system(): void
+    {
+        $device = Device::factory()->create(['name' => 'Teléfono de reparto']);
+        $token = $device->createToken('installation', ['telemetry:write'])->plainTextToken;
+        $this->withToken($token)->getJson('/api/v1/configuration')->assertOk()->assertJsonPath('name', 'Teléfono de reparto');
+
+        $device->update(['name' => 'Teléfono de bodega']);
+        $this->app['auth']->forgetGuards();
+        $this->withToken($token)->getJson('/api/v1/configuration')->assertOk()->assertJsonPath('name', 'Teléfono de bodega');
     }
 
     public function test_replacement_preserves_assignments_and_revokes_the_previous_device(): void

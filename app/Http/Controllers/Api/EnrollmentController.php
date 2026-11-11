@@ -15,7 +15,7 @@ class EnrollmentController extends Controller
     public function store(Request $request, EnrollmentService $service): JsonResponse
     {
         abort_unless(Setting::current()->enrollment_open, 403, 'Las nuevas vinculaciones están cerradas.');
-        $data = $request->validate(['installation_id' => ['required', 'uuid', 'unique:enrollments,installation_id', 'unique:devices,installation_id'], 'name' => ['required', 'string', 'max:100'], 'platform' => ['required', Rule::in(['android', 'ios', 'test'])], 'model' => ['nullable', 'string', 'max:100']]);
+        $data = $request->validate(['installation_id' => ['required', 'uuid', 'unique:enrollments,installation_id', 'unique:devices,installation_id'], 'name' => ['nullable', 'string', 'max:100'], 'platform' => ['required', Rule::in(['android', 'ios', 'test'])], 'model' => ['nullable', 'string', 'max:100']]);
 
         return response()->json($service->request($data), 201)->header('Cache-Control', 'no-store');
     }
